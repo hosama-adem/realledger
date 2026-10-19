@@ -1,0 +1,35 @@
+# Local PostgreSQL for RealLedger. Day 2+.
+# Start:  make up
+# Shell:  make psql
+# Stop:   make down
+
+services:
+  db:
+    image: postgres:16
+    container_name: realledger-db
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-realledger}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-realledger_dev_only}
+      POSTGRES_DB: ${POSTGRES_DB:-realledger}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  pgdata:
+    name: realledger-pgdata

@@ -1,0 +1,33 @@
+# RealLedger local tooling.
+# Requires: Docker Desktop (or Docker Engine) with Compose v2+.
+#
+#   make up     Start PostgreSQL and wait until it accepts connections
+#   make psql   Open a psql shell inside the db container
+#   make down   Stop containers (named volume keeps data)
+
+COMPOSE ?= docker compose
+SERVICE ?= db
+
+# Defaults match .env.example when .env is missing.
+POSTGRES_USER ?= realledger
+POSTGRES_DB ?= realledger
+
+.PHONY: up down psql help
+
+help:
+	@echo "RealLedger make targets"
+	@echo "  make up    - start PostgreSQL 16 (waits for healthy)"
+	@echo "  make psql  - open a SQL shell in the db container"
+	@echo "  make down  - stop containers (data stays in the volume)"
+	@echo "Host port comes from POSTGRES_PORT in .env (default 5433)."
+
+up:
+	@if [ ! -f .env ]; then cp .env.example .env && echo "created .env from .env.example"; fi
+	$(COMPOSE) up -d --wait
+	@echo "PostgreSQL is ready. Run: make psql"
+
+down:
+	$(COMPOSE) down
+
+psql:
+	$(COMPOSE) exec $(SERVICE) psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
