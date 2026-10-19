@@ -18,16 +18,34 @@ realledger/
 ├── docs/                    PRD, plans, OpenAPI contract
 ├── tests/fixtures/          Anonymized statement files
 ├── apps/                    Reserved. Customer app + admin console
+├── docker-compose.yml       Local PostgreSQL 16
+├── .env.example             Env placeholders (copy to .env)
+├── Makefile                 up / down / psql
 ├── README.md
 ├── .gitignore
 └── LICENSE
 ```
 
+## Local database
+
+Needs Docker Desktop (or Docker Engine) with Compose v2+, and `make`.
+
+```bash
+cp .env.example .env   # once; make up also creates .env if missing
+make up                # starts postgres:16 and waits until healthy
+make psql              # SQL shell as realledger / realledger
+make down              # stop containers; data stays in the named volume
+```
+
+Host port defaults to **5433** (see `POSTGRES_PORT` in `.env`) so RealLedger can sit next to other local Postgres containers on 5432. Change the port in `.env` if you prefer.
+
+`DATABASE_URL` in `.env` is what the Go API will use on Day 3. JWT placeholders are for later auth work — not used by Compose.
+
 These paths are named now and filled on their own day:
 
 | Path | When | What lands there |
 | --- | --- | --- |
-| `docker-compose.yml`, `.env.example`, `Makefile` | Day 2 | Local PostgreSQL 16 |
+| `docker-compose.yml`, `.env.example`, `Makefile` | Day 2 | Local PostgreSQL 16 *(done)* |
 | `backend/cmd/api` | Day 3 | Go server, `/health`, `/ready` |
 | `tests/fixtures` | Day 5 | Anonymized Telebirr, Chapa, and bank files |
 | `backend/migrations` | Day 8 | goose migrations and sqlc |

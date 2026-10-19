@@ -37,6 +37,9 @@ pgdata/
 postgres-data/
 .volumes/
 **/.docker-data/
+# Named volume data never lives in the repo; keep accidental dumps out
+*.dump
+*.sql.gz
 
 # Editors and local history
 .idea/
