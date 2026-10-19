@@ -1,0 +1,69 @@
+# Go build output
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+coverage.txt
+coverage.html
+bin/
+dist/
+
+# Go workspace and vendored modules
+go.work
+go.work.sum
+vendor/
+
+# Secrets. Commit .env.example only.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+credentials/
+secrets/
+
+# Unredacted statements. Commit anonymized files in tests/fixtures/ only.
+tests/fixtures/raw/
+
+# Docker volumes and local database data
+pgdata/
+postgres-data/
+.volumes/
+**/.docker-data/
+
+# Editors and local history
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.history/
+
+# OS junk
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Logs and scratch
+*.log
+tmp/
+.tmp/
+
+# Customer app and admin console (apps/, later)
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts

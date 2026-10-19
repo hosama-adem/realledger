@@ -1,0 +1,1482 @@
+openapi: 3.1.0
+info:
+  title: RealLedger API
+  version: 2.0.0
+  description: |
+    Backend contract for RealLedger.
+
+    - Tenant API (customer app): `https://api.realledger.app/api/v1`
+    - Platform Admin API (separate app, keys and audience): `https://admin-api.realledger.app/admin-api/v1`
+
+    Rules:
+    - Money is always integer minor units (105000 = 1,050.00 ETB). Never floats.
+    - `organization_id` always comes from the access token, never from the request body.
+    - Create, reverse and close operations require an `Idempotency-Key` header.
+    - Errors use RFC 9457 problem details.
+    - AI endpoints are read-only. Financial changes happen only through ledger endpoints with human confirmation.
+servers:
+  - url: https://api.realledger.app/api/v1
+    description: Tenant API (Row-Level Security scoped)
+tags:
+  - name: Auth
+  - name: Organization
+  - name: Members
+  - name: Customers
+  - name: PaymentMethods
+  - name: Transactions
+  - name: Imports
+  - name: Reconciliation
+  - name: AI
+  - name: Dashboard
+  - name: Audit
+  - name: Support
+  - name: PlatformAdmin
+
+security:
+  - TenantBearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      operationId: registerOwner
+      summary: Register a new user and create their organization
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Account and organization created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: loginTenantUser
+      summary: Log in a company user (Owner, Accountant, Viewer)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Access and refresh tokens
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshTokens
+      summary: Rotate the refresh token and get a new access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        '200':
+          description: New tokens
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Revoke the current refresh token
+      responses:
+        '204': { description: Logged out }
+  /me:
+    get:
+      tags: [Auth]
+      operationId: getCurrentUser
+      summary: Current user, role and organization
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CurrentUser' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /organization:
+    get:
+      tags: [Organization]
+      operationId: getOrganization
+      summary: Get the current organization
+      responses:
+        '200':
+          description: Organization
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organization' }
+    patch:
+      tags: [Organization]
+      operationId: updateOrganization
+      summary: Update company profile (Owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrganizationUpdate' }
+      responses:
+        '200':
+          description: Updated organization
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organization' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /organization/verification-submission:
+    post:
+      tags: [Organization]
+      operationId: submitVerificationDetails
+      summary: Submit business details for review (Owner only). Sets status to PENDING.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VerificationSubmission' }
+      responses:
+        '202':
+          description: Submitted for platform review
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organization' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /members:
+    get:
+      tags: [Members]
+      operationId: listMembers
+      summary: List organization members (Owner only)
+      responses:
+        '200':
+          description: Members
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Member' }
+  /members/invitations:
+    post:
+      tags: [Members]
+      operationId: inviteMember
+      summary: Invite a user by email (Owner only)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role]
+              properties:
+                email: { type: string, format: email }
+                role: { $ref: '#/components/schemas/CompanyRole' }
+      responses:
+        '201': { description: Invitation sent }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /members/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    patch:
+      tags: [Members]
+      operationId: updateMemberRole
+      summary: Change a member's role or deactivate them (Owner only; at least one Owner must remain)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role: { $ref: '#/components/schemas/CompanyRole' }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: Updated member
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /customers:
+    get:
+      tags: [Customers]
+      operationId: listCustomers
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: q
+          in: query
+          description: Search by name, phone or reference
+          schema: { type: string }
+      responses:
+        '200':
+          description: Customers
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerPage' }
+    post:
+      tags: [Customers]
+      operationId: createCustomer
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /customers/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Customers]
+      operationId: getCustomer
+      responses:
+        '200':
+          description: Customer
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Customers]
+      operationId: updateCustomer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerInput' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+    delete:
+      tags: [Customers]
+      operationId: archiveCustomer
+      summary: Soft-delete (archive) a customer
+      responses:
+        '204': { description: Archived }
+
+  /payment-methods:
+    get:
+      tags: [PaymentMethods]
+      operationId: listPaymentMethods
+      responses:
+        '200':
+          description: Payment methods
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PaymentMethod' }
+    post:
+      tags: [PaymentMethods]
+      operationId: createPaymentMethod
+      summary: Create a payment method (Owner only). No credentials are accepted or stored.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentMethodInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentMethod' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /payment-methods/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    patch:
+      tags: [PaymentMethods]
+      operationId: updatePaymentMethod
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentMethodInput' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentMethod' }
+
+  /transactions:
+    get:
+      tags: [Transactions]
+      operationId: listTransactions
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: payment_method_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: customer_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/TransactionStatus' }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: min_amount_minor
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: Transactions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TransactionPage' }
+    post:
+      tags: [Transactions]
+      operationId: createTransaction
+      summary: Record a transaction and post balanced ledger entries
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransactionInput' }
+      responses:
+        '201':
+          description: Created transaction with its ledger entries
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transaction' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /transactions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Transactions]
+      operationId: getTransaction
+      responses:
+        '200':
+          description: Transaction with ledger entries and events
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transaction' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /transactions/{id}/reverse:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Transactions]
+      operationId: reverseTransaction
+      summary: Post a linked reversal, optionally with a corrected replacement entry
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3 }
+                corrected: { $ref: '#/components/schemas/TransactionInput' }
+      responses:
+        '200':
+          description: Reversal (and corrected transaction, if provided)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reversal]
+                properties:
+                  reversal: { $ref: '#/components/schemas/Transaction' }
+                  corrected: { $ref: '#/components/schemas/Transaction' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /imports/preview:
+    post:
+      tags: [Imports]
+      operationId: previewStatementImport
+      summary: Upload a CSV or Excel statement, apply a column mapping and preview errors and duplicates
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, payment_method_id]
+              properties:
+                file: { type: string, format: binary }
+                payment_method_id: { type: string, format: uuid }
+                template_id: { type: string, format: uuid }
+                mapping:
+                  type: string
+                  description: JSON column mapping, used when no template is given
+      responses:
+        '200':
+          description: Preview
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportPreview' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /imports:
+    post:
+      tags: [Imports]
+      operationId: commitStatementImport
+      summary: Confirm a previewed import. Processing runs as a background job.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [preview_id]
+              properties:
+                preview_id: { type: string, format: uuid }
+                save_template_as: { type: string }
+      responses:
+        '202':
+          description: Import accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportJob' }
+    get:
+      tags: [Imports]
+      operationId: listImports
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Import history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ImportJob' }
+  /imports/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Imports]
+      operationId: getImport
+      responses:
+        '200':
+          description: Import status and counts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportJob' }
+
+  /reconciliations:
+    get:
+      tags: [Reconciliation]
+      operationId: listReconciliations
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Reconciliation runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ReconciliationRun' }
+    post:
+      tags: [Reconciliation]
+      operationId: runReconciliation
+      summary: Run the three-pass matching engine for a period and payment methods
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [start_date, end_date]
+              properties:
+                start_date: { type: string, format: date }
+                end_date: { type: string, format: date }
+                payment_method_ids:
+                  type: array
+                  items: { type: string, format: uuid }
+                statuses:
+                  type: array
+                  items: { $ref: '#/components/schemas/TransactionStatus' }
+      responses:
+        '202':
+          description: Run started (asynchronous for large periods)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReconciliationRun' }
+  /reconciliations/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Reconciliation]
+      operationId: getReconciliation
+      responses:
+        '200':
+          description: Run with per-method totals
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReconciliationRun' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /reconciliations/{id}/items:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Reconciliation]
+      operationId: listReconciliationItems
+      parameters:
+        - name: match_state
+          in: query
+          schema: { $ref: '#/components/schemas/MatchState' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Matched, suggested and unmatched items
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ReconciliationItem' }
+  /reconciliations/{id}/matches:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Reconciliation]
+      operationId: linkReconciliationItems
+      summary: Manually link a statement line to a transaction
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [statement_line_id, transaction_id]
+              properties:
+                statement_line_id: { type: string, format: uuid }
+                transaction_id: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Linked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReconciliationItem' }
+  /reconciliations/{id}/items/{itemId}/explain:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+      - name: itemId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Reconciliation]
+      operationId: markItemExplained
+      summary: Mark an item as explained with a note (does not change the ledger)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [note]
+              properties:
+                note: { type: string, minLength: 3 }
+      responses:
+        '200':
+          description: Updated item
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReconciliationItem' }
+  /reconciliations/{id}/close:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Reconciliation]
+      operationId: closeReconciliation
+      summary: Lock the reconciliation result (audited)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Closed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReconciliationRun' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /reconciliations/{id}/reopen:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Reconciliation]
+      operationId: reopenReconciliation
+      summary: Reopen a closed reconciliation (reason required, audited)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3 }
+      responses:
+        '200':
+          description: Reopened
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReconciliationRun' }
+  /reconciliations/{id}/export:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Reconciliation]
+      operationId: exportReconciliation
+      parameters:
+        - name: format
+          in: query
+          required: true
+          schema: { type: string, enum: [csv, pdf] }
+      responses:
+        '200':
+          description: File download
+          content:
+            text/csv:
+              schema: { type: string }
+            application/pdf:
+              schema: { type: string, format: binary }
+
+  /ai/query:
+    post:
+      tags: [AI]
+      operationId: askFinancialQuestion
+      summary: Natural-language analytics. Read-only; numbers come from backend tools.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question]
+              properties:
+                question: { type: string, maxLength: 1000 }
+                conversation_id: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Answer with the tool results it used
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIAnswer' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /ai/investigate:
+    post:
+      tags: [AI]
+      operationId: investigateMismatchWithAI
+      summary: Explain a reconciliation mismatch. Splits known facts from possible explanations.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reconciliation_id]
+              properties:
+                reconciliation_id: { type: string, format: uuid }
+                payment_method_id: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Investigation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIInvestigationResponse' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /ai/category-suggestions:
+    get:
+      tags: [AI]
+      operationId: listCategorySuggestions
+      responses:
+        '200':
+          description: Pending suggestions
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CategorySuggestion' }
+  /ai/category-suggestions/{id}/decision:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [AI]
+      operationId: decideCategorySuggestion
+      summary: Approve or reject a suggestion. Nothing changes without approval.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [APPROVE, REJECT] }
+      responses:
+        '200':
+          description: Decision recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CategorySuggestion' }
+  /anomalies:
+    get:
+      tags: [AI]
+      operationId: listAnomalies
+      summary: Statistical alerts for review (an alert is not proof of fraud)
+      responses:
+        '200':
+          description: Anomalies
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Anomaly' }
+  /summaries/daily:
+    get:
+      tags: [AI]
+      operationId: getDailySummary
+      parameters:
+        - name: date
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Daily summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DailySummary' }
+
+  /dashboard:
+    get:
+      tags: [Dashboard]
+      operationId: getDashboard
+      parameters:
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Overview figures
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dashboard' }
+
+  /audit-logs:
+    get:
+      tags: [Audit]
+      operationId: listAuditLogs
+      summary: Owners see all; Accountants see their own actions
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: action
+          in: query
+          schema: { type: string }
+        - name: actor_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Audit entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AuditLog' }
+
+  /support-access:
+    get:
+      tags: [Support]
+      operationId: listSupportAccessGrants
+      summary: Break-glass grants and admin actions affecting this organization (Owner only)
+      responses:
+        '200':
+          description: Grants
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SupportAccessGrant' }
+    post:
+      tags: [Support]
+      operationId: grantSupportAccess
+      summary: Grant time-limited, read-only access to RealLedger support (Owner only)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason, duration_hours]
+              properties:
+                reason: { type: string, minLength: 5 }
+                duration_hours: { type: integer, minimum: 1, maximum: 72, default: 24 }
+      responses:
+        '201':
+          description: Granted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupportAccessGrant' }
+  /support-access/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    delete:
+      tags: [Support]
+      operationId: revokeSupportAccess
+      responses:
+        '204': { description: Revoked }
+
+  # ---------------- Platform Admin API (separate server, tokens and audience) ----------------
+  /platform/auth/login:
+    servers: &adminServers
+      - url: https://admin-api.realledger.app/admin-api/v1
+        description: Platform Admin API
+    post:
+      tags: [PlatformAdmin]
+      operationId: loginPlatformUser
+      summary: Staff login. MFA is required to complete.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: MFA challenge issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [mfa_token]
+                properties:
+                  mfa_token: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /platform/auth/mfa:
+    servers: *adminServers
+    post:
+      tags: [PlatformAdmin]
+      operationId: verifyPlatformMfa
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mfa_token, code]
+              properties:
+                mfa_token: { type: string }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: Short-lived admin tokens
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /platform/organizations:
+    servers: *adminServers
+    get:
+      tags: [PlatformAdmin]
+      operationId: listOrganizationsAdmin
+      summary: Search organizations (profile, status, plan, usage only; no financial data)
+      security: [{ PlatformAdminBearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: verification_status
+          in: query
+          schema: { $ref: '#/components/schemas/VerificationStatus' }
+        - name: q
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Organizations
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Organization' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /platform/organizations/{id}/verification:
+    servers: *adminServers
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    patch:
+      tags: [PlatformAdmin]
+      operationId: setOrganizationVerificationStatus
+      summary: Set verification status with a reason (Compliance or Super Admin)
+      security: [{ PlatformAdminBearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status, reason]
+              properties:
+                status: { $ref: '#/components/schemas/VerificationStatus' }
+                reason: { type: string, minLength: 3 }
+      responses:
+        '200':
+          description: Updated and written to platform_audit_logs
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organization' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /platform/organizations/{id}/suspension:
+    servers: *adminServers
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    put:
+      tags: [PlatformAdmin]
+      operationId: setOrganizationSuspension
+      security: [{ PlatformAdminBearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [suspended, reason]
+              properties:
+                suspended: { type: boolean }
+                reason: { type: string, minLength: 3 }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organization' }
+  /platform/audit-logs:
+    servers: *adminServers
+    get:
+      tags: [PlatformAdmin]
+      operationId: listPlatformAuditLogs
+      security: [{ PlatformAdminBearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Platform audit entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AuditLog' }
+  /platform/metrics:
+    servers: *adminServers
+    get:
+      tags: [PlatformAdmin]
+      operationId: getPlatformMetrics
+      summary: Aggregate platform health (no tenant financial data)
+      security: [{ PlatformAdminBearerAuth: [] }]
+      responses:
+        '200':
+          description: Metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  organizations_total: { type: integer }
+                  active_organizations_30d: { type: integer }
+                  failed_import_jobs_24h: { type: integer }
+                  ai_requests_24h: { type: integer }
+                  error_rate_24h: { type: number }
+
+components:
+  securitySchemes:
+    TenantBearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Company user token. Audience `tenant`. Contains user id, organization id and role.
+    PlatformAdminBearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Platform staff token. Audience `platform`, separate signing key. Never accepted by the tenant API.
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Unique key (UUID). Repeating the same key returns the original result.
+      schema: { type: string, format: uuid }
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: Role not allowed
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Not found (also returned for resources of other organizations)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: Duplicate, closed period or state conflict
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ValidationError:
+      description: Validation failed
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    TooManyRequests:
+      description: Rate or cost limit reached
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+    Money:
+      type: object
+      required: [amount_minor, currency]
+      properties:
+        amount_minor: { type: integer, format: int64, examples: [105000] }
+        currency: { type: string, enum: [ETB], default: ETB }
+        formatted: { type: string, readOnly: true, examples: ['ETB 1,050.00'] }
+
+    CompanyRole:
+      type: string
+      enum: [OWNER, ACCOUNTANT, VIEWER]
+    VerificationStatus:
+      type: string
+      enum: [NOT_SUBMITTED, PENDING, VERIFIED, REJECTED]
+    TransactionStatus:
+      type: string
+      enum: [PENDING, RECEIVED, FAILED, REFUNDED, CANCELLED]
+    MatchState:
+      type: string
+      enum: [MATCHED, SUGGESTED, UNMATCHED_EXPECTED, UNMATCHED_ACTUAL, DUPLICATE, EXPLAINED]
+
+    RegisterRequest:
+      type: object
+      required: [full_name, email, password, organization]
+      properties:
+        full_name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }
+        password: { type: string, minLength: 10, writeOnly: true }
+        accepted_privacy_notice: { type: boolean }
+        organization: { $ref: '#/components/schemas/OrganizationUpdate' }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, writeOnly: true }
+    AuthTokens:
+      type: object
+      required: [access_token, refresh_token, expires_in]
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        expires_in: { type: integer, description: Seconds }
+    CurrentUser:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        full_name: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/CompanyRole' }
+        organization_id: { type: string, format: uuid }
+
+    Organization:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        business_type: { type: string }
+        country: { type: string, examples: [ET] }
+        email: { type: string, format: email }
+        phone: { type: string }
+        address: { type: string }
+        business_license_number: { type: [string, 'null'] }
+        tin: { type: [string, 'null'] }
+        registration_number: { type: [string, 'null'] }
+        description: { type: [string, 'null'] }
+        verification_status: { $ref: '#/components/schemas/VerificationStatus' }
+        suspended: { type: boolean }
+        created_at: { type: string, format: date-time }
+    OrganizationUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        business_type: { type: string }
+        country: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }
+        address: { type: string }
+        description: { type: [string, 'null'] }
+    VerificationSubmission:
+      type: object
+      properties:
+        business_license_number: { type: string }
+        tin: { type: string }
+        registration_number: { type: string }
+        description: { type: string }
+    Member:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        full_name: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/CompanyRole' }
+        active: { type: boolean }
+
+    Customer:
+      allOf:
+        - $ref: '#/components/schemas/CustomerInput'
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            created_at: { type: string, format: date-time }
+            archived: { type: boolean }
+    CustomerInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        phone: { type: string, description: Normalized to +251 format }
+        email: { type: [string, 'null'], format: email }
+        reference: { type: string, examples: [CUS-000123] }
+        notes: { type: [string, 'null'] }
+    CustomerPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Customer' }
+        total: { type: integer }
+
+    PaymentMethod:
+      allOf:
+        - $ref: '#/components/schemas/PaymentMethodInput'
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            created_at: { type: string, format: date-time }
+    PaymentMethodInput:
+      type: object
+      required: [name, type]
+      properties:
+        name: { type: string, examples: [Telebirr] }
+        type: { type: string, enum: [MOBILE_MONEY, BANK, GATEWAY, CASH, OTHER] }
+        description: { type: [string, 'null'] }
+        status: { type: string, enum: [ACTIVE, INACTIVE], default: ACTIVE }
+
+    TransactionInput:
+      type: object
+      required: [payment_method_id, money, reference, transaction_date, status]
+      properties:
+        customer_id: { type: [string, 'null'], format: uuid }
+        payment_method_id: { type: string, format: uuid }
+        money: { $ref: '#/components/schemas/Money' }
+        reference: { type: string, examples: [TX-938271] }
+        transaction_date: { type: string, format: date-time }
+        status: { $ref: '#/components/schemas/TransactionStatus' }
+        description: { type: [string, 'null'] }
+    Transaction:
+      allOf:
+        - $ref: '#/components/schemas/TransactionInput'
+        - type: object
+          required: [id, source, is_reversed, created_at]
+          properties:
+            id: { type: string, format: uuid }
+            organization_id: { type: string, format: uuid }
+            source: { type: string, enum: [MANUAL, IMPORT, API] }
+            is_reversed: { type: boolean }
+            reversal_of_id: { type: [string, 'null'], format: uuid }
+            created_by: { type: string, format: uuid }
+            created_at: { type: string, format: date-time }
+            ledger_entries:
+              type: array
+              items: { $ref: '#/components/schemas/LedgerEntry' }
+    LedgerEntry:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        account: { type: string, examples: [Telebirr Clearing] }
+        direction: { type: string, enum: [DEBIT, CREDIT] }
+        money: { $ref: '#/components/schemas/Money' }
+        posted_at: { type: string, format: date-time }
+    TransactionPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Transaction' }
+        total: { type: integer }
+
+    ImportPreview:
+      type: object
+      properties:
+        preview_id: { type: string, format: uuid }
+        rows_total: { type: integer }
+        rows_valid: { type: integer }
+        rows_duplicate: { type: integer }
+        rows_error: { type: integer }
+        sample:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              row: { type: integer }
+              message: { type: string }
+    ImportJob:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        file_name: { type: string }
+        payment_method_id: { type: string, format: uuid }
+        status: { type: string, enum: [QUEUED, PROCESSING, COMPLETED, FAILED] }
+        rows_accepted: { type: integer }
+        rows_rejected: { type: integer }
+        created_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+
+    ReconciliationRun:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        start_date: { type: string, format: date }
+        end_date: { type: string, format: date }
+        status: { type: string, enum: [RUNNING, MATCHED, MISMATCH, CLOSED] }
+        expected_total: { $ref: '#/components/schemas/Money' }
+        actual_total: { $ref: '#/components/schemas/Money' }
+        difference_total: { $ref: '#/components/schemas/Money' }
+        by_payment_method:
+          type: array
+          items:
+            type: object
+            properties:
+              payment_method_id: { type: string, format: uuid }
+              expected: { $ref: '#/components/schemas/Money' }
+              actual: { $ref: '#/components/schemas/Money' }
+              difference: { $ref: '#/components/schemas/Money' }
+              result: { type: string, enum: [MATCHED, MISMATCH] }
+        closed_at: { type: [string, 'null'], format: date-time }
+    ReconciliationItem:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        match_state: { $ref: '#/components/schemas/MatchState' }
+        match_pass: { type: [integer, 'null'], enum: [1, 2, 3, null] }
+        transaction_id: { type: [string, 'null'], format: uuid }
+        statement_line_id: { type: [string, 'null'], format: uuid }
+        money: { $ref: '#/components/schemas/Money' }
+        note: { type: [string, 'null'] }
+
+    AIAnswer:
+      type: object
+      required: [answer, sources]
+      properties:
+        conversation_id: { type: string, format: uuid }
+        answer: { type: string }
+        sources:
+          type: array
+          description: Backend tool calls whose results back the answer
+          items:
+            type: object
+            properties:
+              tool: { type: string, examples: [get_transaction_summary] }
+              arguments: { type: object, additionalProperties: true }
+    AIInvestigationResponse:
+      type: object
+      required: [known_facts, possible_explanations]
+      properties:
+        summary: { type: string }
+        known_facts:
+          type: array
+          items:
+            type: object
+            required: [fact, linked_transaction_ids]
+            properties:
+              fact: { type: string }
+              amount: { $ref: '#/components/schemas/Money' }
+              linked_transaction_ids:
+                type: array
+                items: { type: string, format: uuid }
+        possible_explanations:
+          type: array
+          description: Unconfirmed hypotheses. Never present as fact.
+          items:
+            type: object
+            properties:
+              explanation: { type: string }
+              confidence: { type: string, enum: [LOW, MEDIUM] }
+        suggested_next_steps:
+          type: array
+          items: { type: string }
+    CategorySuggestion:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        transaction_id: { type: string, format: uuid }
+        suggested_category: { type: string, examples: [Sales Revenue] }
+        status: { type: string, enum: [PENDING, APPROVED, REJECTED] }
+    Anomaly:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [LARGE_AMOUNT, UNUSUAL_VOLUME] }
+        transaction_id: { type: [string, 'null'], format: uuid }
+        message: { type: string, examples: [Unusually large transaction. Please review.] }
+        detected_at: { type: string, format: date-time }
+    DailySummary:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        total_received: { $ref: '#/components/schemas/Money' }
+        transaction_count: { type: integer }
+        refunds: { $ref: '#/components/schemas/Money' }
+        top_payment_method: { type: [string, 'null'] }
+        reconciliation_matched: { type: integer }
+        reconciliation_needs_review: { type: integer }
+    Dashboard:
+      type: object
+      properties:
+        total_received: { $ref: '#/components/schemas/Money' }
+        transaction_count: { type: integer }
+        refund_amount: { $ref: '#/components/schemas/Money' }
+        pending_amount: { $ref: '#/components/schemas/Money' }
+        failed_count: { type: integer }
+        by_payment_method:
+          type: array
+          items:
+            type: object
+            properties:
+              payment_method_id: { type: string, format: uuid }
+              name: { type: string }
+              total: { $ref: '#/components/schemas/Money' }
+        reconciliation_matched_percent: { type: number }
+        open_anomalies: { type: integer }
+    AuditLog:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        actor_id: { type: string, format: uuid }
+        actor_name: { type: string }
+        action: { type: string, examples: [transaction.created] }
+        resource_type: { type: string }
+        resource_id: { type: [string, 'null'], format: uuid }
+        summary: { type: string }
+        ip: { type: string }
+        occurred_at: { type: string, format: date-time }
+    SupportAccessGrant:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        reason: { type: string }
+        granted_by: { type: string, format: uuid }
+        expires_at: { type: string, format: date-time }
+        revoked_at: { type: [string, 'null'], format: date-time }
