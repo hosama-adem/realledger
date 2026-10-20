@@ -7,18 +7,22 @@
 
 COMPOSE ?= docker compose
 SERVICE ?= db
+GO ?= go
+API_DIR ?= backend
 
 # Defaults match .env.example when .env is missing.
 POSTGRES_USER ?= realledger
 POSTGRES_DB ?= realledger
 
-.PHONY: up down psql help
+.PHONY: up down psql run test help
 
 help:
 	@echo "RealLedger make targets"
 	@echo "  make up    - start PostgreSQL 16 (waits for healthy)"
 	@echo "  make psql  - open a SQL shell in the db container"
 	@echo "  make down  - stop containers (data stays in the volume)"
+	@echo "  make run   - start the API on HTTP_ADDR (default :8080)"
+	@echo "  make test  - run Go tests"
 	@echo "Host port comes from POSTGRES_PORT in .env (default 5433)."
 
 up:
@@ -31,3 +35,10 @@ down:
 
 psql:
 	$(COMPOSE) exec $(SERVICE) psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
+
+run:
+	@if [ ! -f .env ]; then cp .env.example .env && echo "created .env from .env.example"; fi
+	cd $(API_DIR) && $(GO) run ./cmd/api
+
+test:
+	cd $(API_DIR) && $(GO) test ./...

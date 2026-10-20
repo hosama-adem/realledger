@@ -5,12 +5,18 @@ The Go API. One module, one process, one package per domain.
 ```text
 backend/
 ├── cmd/api/          Process entrypoint. Stays thin.
-├── internal/         Domain packages. See the table below.
+├── internal/         Domain + shared packages. See the tables below.
 ├── migrations/       Ordered SQL. Applied with goose.
 └── tests/            Tests that cross more than one package.
 ```
 
-`go.mod`, the HTTP server, and the first migration arrive with their own issues. This tree is the boundary those issues fill in.
+Shared packages used by the process today:
+
+| Package | Owns |
+| --- | --- |
+| `internal/config` | Environment settings (`HTTP_ADDR`, `DATABASE_URL`, `LOG_LEVEL`) |
+| `internal/database` | pgx pool and connectivity checks |
+| `internal/httpserver` | Gin router, `/health`, `/ready`, timeouts |
 
 ## Packages
 
