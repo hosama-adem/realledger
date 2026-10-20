@@ -11,6 +11,7 @@ coverage.txt
 coverage.html
 bin/
 dist/
+backend/bin/
 
 # Go workspace and vendored modules
 go.work
