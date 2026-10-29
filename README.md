@@ -51,12 +51,32 @@ curl localhost:8080/ready    # readiness — can reach Postgres
 
 `/health` never touches the database. `/ready` returns 503 if Postgres is down. Ctrl+C shuts the process down cleanly.
 
+## Continuous integration
+
+Every push and pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+
+| Check | What it does |
+| --- | --- |
+| **Go** | `go vet`, `go test`, `golangci-lint` in `backend/` |
+| **Secrets** | gitleaks scan (blocks real secrets; placeholders in `.env.example` are allowed) |
+
+Dependabot opens weekly PRs for Go modules and GitHub Actions. `main` expects these checks to stay green before merge.
+
+Locally:
+
+```bash
+make vet
+make test
+make lint   # needs golangci-lint installed
+```
+
 These paths are named now and filled on their own day:
 
 | Path | When | What lands there |
 | --- | --- | --- |
 | `docker-compose.yml`, `.env.example`, `Makefile` | Day 2 | Local PostgreSQL 16 *(done)* |
 | `backend/cmd/api` | Day 3 | Go server, `/health`, `/ready` *(done)* |
+| `.github/workflows/ci.yml` | Day 4 | CI, Dependabot, gitleaks *(done)* |
 | `tests/fixtures` | Day 5 | Anonymized Telebirr, Chapa, and bank files |
 | `backend/migrations` | Day 8 | goose migrations and sqlc |
 | `apps/web`, `apps/admin` | After the contract is stable | Next.js customer app and platform console |

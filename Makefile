@@ -14,7 +14,7 @@ API_DIR ?= backend
 POSTGRES_USER ?= realledger
 POSTGRES_DB ?= realledger
 
-.PHONY: up down psql run test help
+.PHONY: up down psql run test vet lint help
 
 help:
 	@echo "RealLedger make targets"
@@ -23,6 +23,8 @@ help:
 	@echo "  make down  - stop containers (data stays in the volume)"
 	@echo "  make run   - start the API on HTTP_ADDR (default :8080)"
 	@echo "  make test  - run Go tests"
+	@echo "  make vet   - run go vet"
+	@echo "  make lint  - run golangci-lint (install separately)"
 	@echo "Host port comes from POSTGRES_PORT in .env (default 5433)."
 
 up:
@@ -42,3 +44,9 @@ run:
 
 test:
 	cd $(API_DIR) && $(GO) test ./...
+
+vet:
+	cd $(API_DIR) && $(GO) vet ./...
+
+lint:
+	cd $(API_DIR) && golangci-lint run ./...

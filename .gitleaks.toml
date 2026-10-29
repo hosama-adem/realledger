@@ -1,0 +1,16 @@
+# RealLedger secret scan. Extends the default gitleaks rules.
+title = "RealLedger"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Docs and placeholders that look like secrets but are not"
+paths = [
+  '''\.env\.example$''',
+  '''docs/.*''',
+]
+regexes = [
+  '''change-me-.*-not-for-production''',
+  '''realledger_dev_only''',
+]
