@@ -38,7 +38,8 @@ jobs:
       - name: Lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.5.0
+          # Pin a release built with Go >= the module's `go` directive.
+          version: v2.15.0
           working-directory: backend
 
   secrets:
