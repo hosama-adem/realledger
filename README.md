@@ -26,30 +26,44 @@ realledger/
 └── LICENSE
 ```
 
-## Local database
+## Quick start
 
-Needs Docker Desktop (or Docker Engine) with Compose v2+, and `make`.
-
-```bash
-cp .env.example .env   # once; make up also creates .env if missing
-make up                # starts postgres:16 and waits until healthy
-make psql              # SQL shell as realledger / realledger
-make down              # stop containers; data stays in the named volume
-```
-
-Host port defaults to **5433** (see `POSTGRES_PORT` in `.env`) so RealLedger can sit next to other local Postgres containers on 5432. Change the port in `.env` if you prefer.
-
-## API server
-
-Needs Go 1.22+ and a running database (`make up`).
+Needs Docker Desktop (or Engine) with Compose v2+, Go 1.25+, and optionally `make`.
 
 ```bash
-make run               # loads .env, listens on :8080
-curl localhost:8080/health   # liveness — process is up
-curl localhost:8080/ready    # readiness — can reach Postgres
+# 1. Env
+cp .env.example .env
+
+# 2. Database (Postgres 16 on host port 5433 by default)
+make up
+make psql          # optional: SQL shell
+
+# 3. API
+make run           # listens on :8080 (loads .env)
+curl -s localhost:8080/health   # {"status":"ok"}
+curl -s localhost:8080/ready    # {"status":"ready"} when DB is up
+
+# 4. Checks (same as CI)
+make vet
+make test
+make lint          # needs golangci-lint installed
 ```
 
-`/health` never touches the database. `/ready` returns 503 if Postgres is down. Ctrl+C shuts the process down cleanly.
+Without `make`:
+
+```bash
+docker compose up -d --wait
+cd backend && go run ./cmd/api
+```
+
+| Endpoint | Meaning |
+| --- | --- |
+| `GET /health` | Process is alive (no DB) |
+| `GET /ready` | Postgres ping succeeds |
+
+`make down` stops containers; data stays in the named volume. Host port defaults to **5433** so RealLedger can sit next to other local Postgres on 5432.
+
+Week 1 notes: [`docs/week-1-retro.md`](docs/week-1-retro.md).
 
 ## Continuous integration
 
@@ -79,6 +93,7 @@ These paths are named now and filled on their own day:
 | `.github/workflows/ci.yml` | Day 4 | CI, Dependabot, gitleaks *(done)* |
 | `tests/fixtures` | Day 5 | Anonymized Telebirr, Chapa, and bank files |
 | `docs/database-erd.md`, `docs/database-naming-rules.md` | Day 6 | Schema map and naming *(done)* |
+| `docs/week-1-retro.md` | Day 7 | Week 1 retro + board setup *(done)* |
 | `backend/migrations` | Day 8 | goose migrations and sqlc |
 | `apps/web`, `apps/admin` | After the contract is stable | Next.js customer app and platform console |
 
@@ -118,6 +133,7 @@ Package boundaries are spelled out again in [`backend/README.md`](backend/README
 | [`docs/realledger-openapi.yaml`](docs/realledger-openapi.yaml) | HTTP contract. Handlers follow this file |
 | [`docs/database-erd.md`](docs/database-erd.md) | MVP tables, relationships, tenancy marks |
 | [`docs/database-naming-rules.md`](docs/database-naming-rules.md) | UUID, UTC, BIGINT money, snake_case rules |
+| [`docs/week-1-retro.md`](docs/week-1-retro.md) | Week 1: done / stuck / next |
 
 ## Rules that keep later days in place
 
