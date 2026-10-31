@@ -78,6 +78,7 @@ These paths are named now and filled on their own day:
 | `backend/cmd/api` | Day 3 | Go server, `/health`, `/ready` *(done)* |
 | `.github/workflows/ci.yml` | Day 4 | CI, Dependabot, gitleaks *(done)* |
 | `tests/fixtures` | Day 5 | Anonymized Telebirr, Chapa, and bank files |
+| `docs/database-erd.md`, `docs/database-naming-rules.md` | Day 6 | Schema map and naming *(done)* |
 | `backend/migrations` | Day 8 | goose migrations and sqlc |
 | `apps/web`, `apps/admin` | After the contract is stable | Next.js customer app and platform console |
 
@@ -115,6 +116,8 @@ Package boundaries are spelled out again in [`backend/README.md`](backend/README
 | [`docs/RealLedger-Backend-Plan.md`](docs/RealLedger-Backend-Plan.md) | Backend work, one issue per day |
 | [`docs/RealLedger-Roadmap-and-Issues.md`](docs/RealLedger-Roadmap-and-Issues.md) | 90-day milestones and definition of done |
 | [`docs/realledger-openapi.yaml`](docs/realledger-openapi.yaml) | HTTP contract. Handlers follow this file |
+| [`docs/database-erd.md`](docs/database-erd.md) | MVP tables, relationships, tenancy marks |
+| [`docs/database-naming-rules.md`](docs/database-naming-rules.md) | UUID, UTC, BIGINT money, snake_case rules |
 
 ## Rules that keep later days in place
 
